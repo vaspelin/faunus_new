@@ -157,7 +157,7 @@ SelfEnergy::SelfEnergy(const json &j, Tspace &spc) : spc(spc) {
 }
 double SelfEnergy::energy(Change &change) {
     double Eq = 0;
-    if (change.dN)
+    if (change.dN or change.chargeMove)
         for (auto cg : change.groups) {
             auto g = spc.groups.at(cg.index);
             for (auto i : cg.atoms)

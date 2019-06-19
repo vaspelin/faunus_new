@@ -171,6 +171,47 @@ class TranslateRotate : public Movebase {
     TranslateRotate(Space &spc);
 };
 
+/**
+ * @brief Translate and rotate molecular groups preferentially, depending on wether they are inside or outside geometry (e.g. ellipsoid)
+ */
+class BiasedTranslateRotate : public Movebase {
+  protected:
+    typedef typename Space::Tpvec Tpvec;
+    Space &spc;
+
+    int molid = -1, refid1 = -1, refid2 = -1;
+    unsigned long cnt;
+    double dptrans = 0, dprot = 0;
+    double p = 1;
+    double apad = 0, a = 0, b = 0, c = 0;
+    double _sqd; // squared displacement
+    Average<double> msqd, countNin_avg, countNin_avgBlocks, countNout_avg, countNout_avgBlocks; // mean squared displacement and particle counters 
+
+    double cosTheta, theta;
+    double x, y;
+    double coord, coordNew, coordTemp;
+    double randNbr;
+    double _bias = 0, rsd = 0.01, Nin, countNin, countNout, Ntot = 0, cntInner = 0;
+
+    Point dir = {1,1,1};
+    Point cylAxis = {0,0,0};
+    Point origo = {0,0,0};
+    Point molV = {0,0,0};
+
+    bool findBias = true;
+    
+    void _to_json(json &j) const override;
+    void _from_json(const json &j) override; //!< Configure via json object
+    void _move(Change &change) override;
+    double bias(Change&, double, double) override;
+    void _accept(Change &) override { msqd += _sqd; }
+    void _reject(Change &) override { msqd += 0; }
+
+  public:
+    BiasedTranslateRotate(Space &spc);
+};
+
+
 #ifdef DOCTEST_LIBRARY_INCLUDED
 TEST_CASE("[Faunus] TranslateRotate") {
     typedef typename Space::Tpvec Tpvec;
@@ -282,6 +323,29 @@ class ChargeMove : public Movebase {
   public:
     ChargeMove(Tspace &spc);
 };
+
+/**
+ * @brief Transfers charge between two atoms
+ */
+class ChargeTransfer : public Movebase {
+  private:
+    typedef typename Space::Tpvec Tpvec;
+    Space &spc;           // Space to operate on
+    Average<double> msqd; // mean squared displacement
+    double dq = 0, deltaq = 0;
+    std::vector<int> atomIndex;
+    Change::data cdata1, cdata2;
+
+    void _to_json(json &j) const override;
+    void _from_json(const json &j) override;
+    void _move(Change &change) override;
+    void _accept(Change &) override;
+    void _reject(Change &) override;
+
+  public:
+    ChargeTransfer(Tspace &spc);
+};
+
 
 /**
  * @brief QuadrantJump translates a molecule to another quadrant

@@ -181,6 +181,8 @@ Propagator::Propagator(const json &j, Space &spc, MPI::MPIController &mpi) {
             try {
                 if (it.key() == "moltransrot")
                     this->template push_back<Move::TranslateRotate>(spc);
+                else if (it.key() == "biasedmoltransrot")
+                    this->template push_back<Move::BiasedTranslateRotate>(spc);
                 else if (it.key() == "conformationswap")
                     this->template push_back<Move::ConformationSwap>(spc);
                 else if (it.key() == "transrot")
@@ -193,6 +195,8 @@ Propagator::Propagator(const json &j, Space &spc, MPI::MPIController &mpi) {
                     this->template push_back<Move::VolumeMove>(spc);
                 else if (it.key() == "charge")
                     this->template push_back<Move::ChargeMove>(spc);
+                else if (it.key() == "chargetransfer")
+                    this->template push_back<Move::ChargeTransfer>(spc);
                 else if (it.key() == "rcmc")
                     this->template push_back<Move::SpeciationMove>(spc);
                 else if (it.key() == "quadrantjump")
@@ -371,6 +375,7 @@ void ChargeMove::_from_json(const json &j) {
 }
 void ChargeMove::_move(Change &change) {
     if (dq > 0) {
+        change.chargeMove = true;
         auto &p = spc.p[atomIndex]; // refence to particle
         double qold = p.charge;
         p.charge += dq * (slump() - 0.5);
@@ -387,6 +392,50 @@ ChargeMove::ChargeMove(Space &spc) : spc(spc) {
     cdata.internal = true; // the group is internally changed
     cdata.atoms.resize(1); // we change exactly one atom
 }
+
+void ChargeTransfer::_to_json(json &j) const {
+    using namespace u8;
+    j = {{"index", atomIndex},
+         {"dq", dq},
+         {rootof + bracket(Delta + "q" + squared), std::sqrt(msqd.avg())},
+         {cuberoot + rootof + bracket(Delta + "q" + squared), std::cbrt(std::sqrt(msqd.avg()))}};
+    _roundjson(j, 3);
+}
+void ChargeTransfer::_from_json(const json &j) {
+    dq = j.at("dq").get<double>();
+    atomIndex = j.at("index").get<std::vector<int>>();
+    auto git1 = spc.findGroupContaining(spc.p[atomIndex[0]]);                    // group containing atomIndex
+    auto git2 = spc.findGroupContaining(spc.p[atomIndex[1]]);                    // group containing atomIndex
+    cdata1.index = std::distance(spc.groups.begin(), git1);                      // integer *index* of moved group
+    cdata2.index = std::distance(spc.groups.begin(), git2);                      // integer *index* of moved group
+    cdata1.atoms[0] = std::distance(git1->begin(), spc.p.begin() + atomIndex[0]); // index of particle rel. to group
+    cdata2.atoms[0] = std::distance(git2->begin(), spc.p.begin() + atomIndex[1]); // index of particle rel. to group
+}
+void ChargeTransfer::_move(Change &change) {
+    if (dq > 0) {
+        change.chargeMove = true;
+        auto &p1 = spc.p[atomIndex[0]]; // refence to particle
+        auto &p2 = spc.p[atomIndex[1]]; // refence to particle
+        double qold = p1.charge;
+        p1.charge += dq * (slump() - 0.5);
+        deltaq = p1.charge - qold;
+        p2.charge -= deltaq;
+        change.groups.push_back(cdata1); // add to list of moved groups
+        change.groups.push_back(cdata2); // add to list of moved groups
+    } else
+        deltaq = 0;
+}
+void ChargeTransfer::_accept(Change &) { msqd += deltaq * deltaq; }
+void ChargeTransfer::_reject(Change &) { msqd += 0; }
+ChargeTransfer::ChargeTransfer(Space &spc) : spc(spc) {
+    name = "chargetransfer";
+    repeat = 1;
+    cdata1.internal = true; // the group is internally changed
+    cdata2.internal = true; // the group is internally changed
+    cdata1.atoms.resize(1); // we change exactly one atom
+    cdata2.atoms.resize(1); // we change exactly one atom
+}
+
 void QuadrantJump::_to_json(json &j) const {
     j = {{"dir", dir},
          {"molid", molid},
@@ -583,6 +632,184 @@ TranslateRotate::TranslateRotate(Space &spc) : spc(spc) {
     name = "moltransrot";
     repeat = -1; // meaning repeat N times
 }
+
+void BiasedTranslateRotate::_to_json(json &j) const {
+    j = {{"dir", dir},
+         {"dp", dptrans},
+         {"dprot", dprot},
+         {"p", p},
+         {"origo", origo},
+         {"apad", apad},
+         {"b", b},
+         {"c", c},
+         {"molid", molid},
+         {"refid", refid1},
+         {"refid", refid2},
+         {u8::rootof + u8::bracket("r" + u8::squared), std::sqrt(msqd.avg())},
+         {"molecule", molecules[molid].name},
+         {"ref1", atoms[refid1].name},
+         {"ref2", atoms[refid2].name}
+    };
+    _roundjson(j, 3);
+}
+void BiasedTranslateRotate::_from_json(const json &j) {
+    assert(!molecules.empty());
+    try {
+        std::string molname = j.at("molecule");
+        std::string refname1 = j.at("ref1");
+        std::string refname2 = j.at("ref2");
+        auto it = findName(molecules, molname);
+        auto ref1 = findName(atoms, refname1);
+        auto ref2 = findName(atoms, refname2);
+        if (it == molecules.end())
+            throw std::runtime_error("unknown molecule '" + molname + "'");
+        if (ref1 == atoms.end())
+            throw std::runtime_error("unknown reference atom '" + refname1 + "'");
+        if (ref2 == atoms.end())
+            throw std::runtime_error("unknown reference atom '" + refname2 + "'");
+        molid = it->id();
+        refid1 = ref1->id();
+        refid2 = ref2->id();
+        dir = j.value("dir", Point(1, 1, 1));
+        dprot = j.at("dprot");
+        dptrans = j.at("dp");
+        p = j.at("p");
+        apad = j.at("apad");
+        b = j.at("b");
+        c = j.at("c");
+        rsd = j.at("rsd");
+
+        if (repeat < 0) {
+            auto v = spc.findMolecules(molid);
+            repeat = std::distance(v.begin(), v.end());
+        }
+    } catch (std::exception &e) {
+        throw std::runtime_error(name + ": " + e.what());
+    }
+}
+void BiasedTranslateRotate::_move(Change &change) {
+    assert(molid >= 0);
+    assert(!spc.groups.empty());
+    assert(spc.geo.getVolume() > 0);
+    _bias = 0.0;
+
+    // pick random group from the system matching molecule type
+    // TODO: This can be slow -- implement look-up-table in Space
+    auto mollist = spc.findMolecules(molid, Space::ACTIVE); // list of molecules w. 'molid'
+    auto reflist1 = spc.findAtoms(refid1); // list of atoms w. 'refid1'
+    auto reflist2 = spc.findAtoms(refid2); // list of atoms w. 'refid2'
+    if (size(mollist) > 0) {
+        auto it = slump.sample(mollist.begin(), mollist.end());
+        auto ref1 = slump.sample(reflist1.begin(), reflist1.end());
+        auto ref2 = slump.sample(reflist2.begin(), reflist2.end());
+        cylAxis = spc.geo.vdist( ref2->pos, ref1->pos )*0.5; // half vector between reference atoms
+        origo = ref2->pos - cylAxis;                         // coordinates of middle point between reference atoms: new origo
+        a = cylAxis.norm()+apad;                             // Length of a axis of sphere/ellipsoid
+
+        if (not it->empty()) {
+            assert(it->id == molid);
+            
+            randNbr = slump();
+            molV = spc.geo.vdist( it->cm, origo ); // vector between selected atom and center of geometry
+            cosTheta = molV.dot(cylAxis)/molV.norm()/cylAxis.norm();
+            theta = acos(cosTheta);
+            x = cosTheta*molV.norm();
+            y = sin(theta)*molV.norm();
+            coord = x*x/(a*a)+y*y/(b*b);
+
+            if ( not ( coord > 1.0 && p < randNbr ) ) {
+
+                if (coord <= 1.0)
+                    cntInner += 1;
+
+                cnt += 1;
+
+                if (findBias == true) {
+                    countNin = 0.0;
+                    countNout = 0.0;
+                    Ntot = 0.0;
+                    for ( auto &g : mollist) {
+                        Ntot += 1.0;
+                        molV = spc.geo.vdist( g.cm, origo );
+                        cosTheta = molV.dot(cylAxis)/molV.norm()/cylAxis.norm();
+                        theta = acos(cosTheta);
+                        x = cosTheta*molV.norm();
+                        y = sin(theta)*molV.norm();
+                        coordTemp = x*x/(a*a)+y*y/(b*b);
+                        if (coordTemp <= 1.0) 
+                            countNin += 1.0;
+                        else
+                            countNout += 1.0;
+                    }
+
+                    countNin_avg += countNin;
+                    countNout_avg += countNout;
+
+                    if (cnt%1000000 == 0) {
+                        Nin = countNin_avgBlocks.avg();
+                        if (countNin_avgBlocks.stdev()/Nin < rsd) {
+                            cout << "Bias found with rsd = " << countNin_avgBlocks.stdev()/Nin << " < " << rsd << "\n\n";
+                            findBias = false;
+                        }
+                    }
+                }
+                        
+                if (dptrans > 0) { // translate
+                    Point oldcm = it->cm;
+                    Point dp = ranunit(slump, dir) * dptrans * slump();
+
+                    it->translate(dp, spc.geo.getBoundaryFunc());
+                    _sqd = spc.geo.sqdist(oldcm, it->cm); // squared displacement
+                }
+
+                if (dprot > 0) { // rotate
+                    Point u = ranunit(slump);
+                    double angle = dprot * (slump() - 0.5);
+                    Eigen::Quaterniond Q(Eigen::AngleAxisd(angle, u));
+                    it->rotate(Q, spc.geo.getBoundaryFunc());
+                }
+
+                if (dptrans > 0 || dprot > 0) { // define changes
+                    Change::data d;
+                    d.index = Faunus::distance(spc.groups.begin(), it); // integer *index* of moved group
+                    d.all = true;                                       // *all* atoms in group were moved
+                    change.groups.push_back(d);                         // add to list of moved groups
+                }
+                assert(spc.geo.sqdist(it->cm, Geometry::massCenter(it->begin(), it->end(), spc.geo.getBoundaryFunc(),
+                                                               -it->cm)) < 1e-6);
+
+                molV = spc.geo.vdist( it->cm, origo );
+                cosTheta = molV.dot(cylAxis)/molV.norm()/cylAxis.norm();
+                theta = acos(cosTheta);
+                x = cosTheta*molV.norm();
+                y = sin(theta)*molV.norm();
+                coordNew = x*x/(a*a)+y*y/(b*b);
+
+                if (findBias == true) {
+                    if ( coord <= 1.0 && coordNew > 1.0 ) 
+                        _bias = -log(p/(1-(1-p)/(p*Ntot+(1-p)*countNin)));
+                    else if ( coord > 1.0 && coordNew <= 1.0 )
+                        _bias = -log(1/(1+(1-p)/(p*Ntot+(1-p)*countNin)));
+                }
+
+                else {
+                    if ( coord <= 1.0 && coordNew > 1.0 ) 
+                        _bias = -log(p/(1-(1-p)/(p*Ntot+(1-p)*Nin)));
+                    else if ( coord > 1.0 && coordNew <= 1.0 )
+                        _bias = -log(1/(1+(1-p)/(p*Ntot+(1-p)*Nin)));
+                }
+            }
+        }
+    }
+}
+
+double BiasedTranslateRotate::bias(Change &, double, double) { return _bias; }
+
+BiasedTranslateRotate::BiasedTranslateRotate(Space &spc) : spc(spc) {
+    name = "biasedmoltransrot";
+    repeat = -1; // meaning repeat N times
+}
+
 void ConformationSwap::_to_json(json &j) const {
     j = {{"molid", molid}, {"molecule", molecules[molid].name}};
     _roundjson(j, 3);
