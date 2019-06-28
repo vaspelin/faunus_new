@@ -333,7 +333,14 @@ class ChargeTransfer : public Movebase {
     Space &spc;           // Space to operate on
     Average<double> msqd; // mean squared displacement
     double dq = 0, deltaq = 0;
-    std::vector<int> atomIndex;
+    double sumCharges = 0;
+    double sumChanges = 0;
+    int atomIndex = 0;
+    int  molid = -1;
+    int numOfAtoms = 0;
+    int i = 0;
+    std::vector<double> min, max;
+    std::vector<double> changeQ;
     Change::data cdata1, cdata2;
 
     void _to_json(json &j) const override;
