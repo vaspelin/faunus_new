@@ -464,7 +464,7 @@ void ChargeTransfer::_move(Change &change) {
                     if (git1.charge + sumChanges < range[0]) {
                         for (i=0; i < numOfAtoms; i++) {                    
                             auto p = git2->begin()+i;
-                            p->charge = 2*max[i]-(p->charge-changeQ[i]);
+                            p->charge -= changeQ[i]*(2*range[0]-2*git1.charge-sumChanges)/sumChanges;
                             //p->charge -= changeQ[i]+(max[i]-min[i])*0.5000;
                         }
                         git1.charge = 2*range[0]-(git1.charge+sumChanges);
@@ -474,7 +474,7 @@ void ChargeTransfer::_move(Change &change) {
                     else if (git1.charge + sumChanges > range[1]) { 
                         for (i=0; i < numOfAtoms; i++) {                    
                             auto p = git2->begin()+i;
-                            p->charge = 2*min[i]-(p->charge-changeQ[i]);
+                            p->charge -= changeQ[i]*(2*range[1]-2*git1.charge-sumChanges)/sumChanges;
                             //p->charge -= changeQ[i]+(min[i]-max[i])*0.5000;
                         }
                         git1.charge = 2*range[1]-(git1.charge+sumChanges);
@@ -493,7 +493,8 @@ void ChargeTransfer::_move(Change &change) {
                     if (sumCharges < totrange[0]) {
                         for (i=0; i < numOfAtoms; i++) {
                             auto p = git2->begin()+i;
-                            p->charge = 2*min[i]-(p->charge-changeQ[i]);
+                            p->charge -= changeQ[i]*(2*range[1]-2*git1.charge-sumChanges)/sumChanges;
+                            //p->charge = 2*min[i]-(p->charge-changeQ[i]);
                             //p->charge -= changeQ[i]+(min[i]-max[i])*0.5000;
                         }
                         git1.charge = 2*range[1]-(git1.charge+sumChanges);
@@ -503,7 +504,8 @@ void ChargeTransfer::_move(Change &change) {
                         for (i=0; i < numOfAtoms; i++) {
                             auto p = git2->begin()+i;
                             //p->charge -= changeQ[i]+(max[i]-min[i])*0.5000;
-                            p->charge = 2*max[i]-(p->charge-changeQ[i]);
+                            p->charge -= changeQ[i]*(2*range[0]-2*git1.charge-sumChanges)/sumChanges;
+                            //p->charge = 2*max[i]-(p->charge-changeQ[i]);
                         }
                         git1.charge = 2*range[0]-(git1.charge+sumChanges);
                         //git1.charge += sumChanges+range[1]-range[0];
