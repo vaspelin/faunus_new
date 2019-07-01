@@ -461,53 +461,12 @@ void ChargeTransfer::_move(Change &change) {
                     //cout << "Disp. charge: " << deltaq << endl;
                     //cout << "New charge, artificial ion: " << git1.charge+deltaq << endl;
 
-                    if (git1.charge + sumChanges < range[0]) {
-                        for (i=0; i < numOfAtoms; i++) {                    
-                            auto p = git2->begin()+i;
-                            p->charge = 2*max[i]-(p->charge-changeQ[i]);
-                            //p->charge -= changeQ[i]+(max[i]-min[i])*0.5000;
-                        }
-                        git1.charge = 2*range[0]-(git1.charge+sumChanges);
-                        //git1.charge += sumChanges+range[1]-range[0];
+                    for (i=0; i < numOfAtoms; i++) {                    
+                        auto p = git2->begin()+i;
+                        p->charge -= changeQ[i];
                     }
+                    git1.charge += sumChanges;
 
-                    else if (git1.charge + sumChanges > range[1]) { 
-                        for (i=0; i < numOfAtoms; i++) {                    
-                            auto p = git2->begin()+i;
-                            p->charge = 2*min[i]-(p->charge-changeQ[i]);
-                            //p->charge -= changeQ[i]+(min[i]-max[i])*0.5000;
-                        }
-                        git1.charge = 2*range[1]-(git1.charge+sumChanges);
-                        //git1.charge += sumChanges+range[0]-range[1];
-                    }
-                    else {
-                        for (i=0; i < numOfAtoms; i++) {                    
-                            auto p = git2->begin()+i;
-                            p->charge -= changeQ[i];
-                        }
-                        git1.charge += sumChanges;
-                    }
-
-                }
-                else {
-                    if (sumCharges < totrange[0]) {
-                        for (i=0; i < numOfAtoms; i++) {
-                            auto p = git2->begin()+i;
-                            p->charge = 2*min[i]-(p->charge-changeQ[i]);
-                            //p->charge -= changeQ[i]+(min[i]-max[i])*0.5000;
-                        }
-                        git1.charge = 2*range[1]-(git1.charge+sumChanges);
-                        //git1.charge += sumChanges+range[0]-range[1];
-                    }
-                    else if (sumCharges > totrange[1]) {
-                        for (i=0; i < numOfAtoms; i++) {
-                            auto p = git2->begin()+i;
-                            //p->charge -= changeQ[i]+(max[i]-min[i])*0.5000;
-                            p->charge = 2*max[i]-(p->charge-changeQ[i]);
-                        }
-                        git1.charge = 2*range[0]-(git1.charge+sumChanges);
-                        //git1.charge += sumChanges+range[1]-range[0];
-                    }
                 }
                 cdata2.all = true;
                 change.groups.push_back(cdata1); // add to list of moved groups
@@ -525,8 +484,8 @@ void ChargeTransfer::_reject(Change &) { msqd += 0; }
 ChargeTransfer::ChargeTransfer(Space &spc) : spc(spc) {
     name = "chargetransfer";
     repeat = -1;
-    cdata1.internal = false;
-    cdata2.internal = false;
+    cdata1.internal = true;
+    cdata2.internal = true;
     cdata1.atoms.resize(1);
     cdata2.atoms.resize(numOfAtoms);
 }
